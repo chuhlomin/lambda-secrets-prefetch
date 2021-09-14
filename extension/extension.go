@@ -21,21 +21,21 @@ var client *http.Client
 var identifier string
 
 type Config struct {
-	SecretsHome    string           `yaml:SecretsHome`
+	SecretsHome    string           `yaml:"SecretsHome"`
 	SecretManagers []SecretManagers `yaml:"SecretManagers"`
 }
 
 type SecretManagers struct {
-	Prefix  string    `yaml:prefix`
-	Secrets []Secrets `yaml:Secrets`
+	Prefix  string    `yaml:"prefix"`
+	Secrets []Secrets `yaml:"Secrets"`
 }
 
 type Secrets struct {
-	Secretname string `yaml:secretname`
-	Filename   string `yaml:filename`
+	Secretname string `yaml:"secretname"`
+	Filename   string `yaml:"filename"`
 }
 
-// SetLogLevelFromEnv reads the LOG_LEVEL environtment variable for DEBUG or TRACE and updates log verbosity accordingly
+// SetLogLevelFromEnv reads the LOG_LEVEL environment variable for DEBUG or TRACE and updates log verbosity accordingly
 func SetLogLevelFromEnv() {
 	logLevel := os.Getenv("LOG_LEVEL")
 	if logLevel != "" {
@@ -82,7 +82,12 @@ func main() {
 	log.Infof("[extension] got base url %s", baseURL)
 	client = &http.Client{}
 
-	config := getConfig("/var/task/config.yaml")
+	configPath := os.Getenv("CONFIG_PATH")
+	if configPath == "" {
+		configPath = "/var/task/config.yaml"
+	}
+
+	config := getConfig(configPath)
 
 	// Fetching from secrets manager and writing to disk
 	populateSecrets(config)
@@ -114,8 +119,8 @@ func populateSecrets(config *Config) {
 
 	for i := range config.SecretManagers {
 		for j := range config.SecretManagers[i].Secrets {
-			secretid := fmt.Sprintf("%s%s", config.SecretManagers[i].Prefix, config.SecretManagers[i].Secrets[j].Secretname)
-			go handleSecret(*awsSecretsManager, secretid, config.SecretManagers[i].Secrets[j].Filename, config, errchan)
+			secretID := fmt.Sprintf("%s%s", config.SecretManagers[i].Prefix, config.SecretManagers[i].Secrets[j].Secretname)
+			go handleSecret(*awsSecretsManager, secretID, config.SecretManagers[i].Secrets[j].Filename, config, errchan)
 		}
 	}
 
@@ -131,10 +136,10 @@ func populateSecrets(config *Config) {
 	close(errchan)
 }
 
-func handleSecret(sm secrets.AWSSecrets, secretid string, filename string, config *Config, errchan chan<- error) {
-	thesecret, err := getSecret(sm, secretid)
+func handleSecret(sm secrets.AWSSecrets, secretID string, filename string, config *Config, errchan chan<- error) {
+	thesecret, err := getSecret(sm, secretID)
 	if err != nil {
-		errchan <- fmt.Errorf("[Extension] ERROR reading secret (%s): %v", secretid, err)
+		errchan <- fmt.Errorf("[Extension] ERROR reading secret (%s): %v", secretID, err)
 		return
 	}
 
@@ -218,12 +223,6 @@ func fullURL(path string) string {
 	return fmt.Sprintf("%s/%s", baseURL, path)
 }
 
-func check(e error) {
-	if e != nil {
-		panic(e)
-	}
-}
-
 func putSecret(secret *string, target string, config *Config) error {
 	fname := fmt.Sprintf("%v/%v", config.SecretsHome, target)
 
@@ -241,10 +240,8 @@ func putSecret(secret *string, target string, config *Config) error {
 	return nil
 }
 
-func getSecret(sm secrets.AWSSecrets, secretid string) (*string, error) {
-
-	result, err := sm.Get(secretid, os.Getenv("AWS_REGION"))
-
+func getSecret(sm secrets.AWSSecrets, secretID string) (*string, error) {
+	result, err := sm.Get(secretID, os.Getenv("AWS_REGION"))
 	if err != nil {
 		return nil, err
 	}
@@ -255,13 +252,13 @@ func getSecret(sm secrets.AWSSecrets, secretid string) (*string, error) {
 	if result.SecretString != nil {
 		secretString = *result.SecretString
 		return &secretString, nil
-	} else {
-		decodedBinarySecretBytes := make([]byte, base64.StdEncoding.DecodedLen(len(result.SecretBinary)))
-		len, err := base64.StdEncoding.Decode(decodedBinarySecretBytes, result.SecretBinary)
-		if err != nil {
-			log.Error("Base64 Decode Error:", err)
-		}
-		decodedBinarySecret = string(decodedBinarySecretBytes[:len])
-		return &decodedBinarySecret, nil
 	}
+
+	decodedBinarySecretBytes := make([]byte, base64.StdEncoding.DecodedLen(len(result.SecretBinary)))
+	len, err := base64.StdEncoding.Decode(decodedBinarySecretBytes, result.SecretBinary)
+	if err != nil {
+		log.Error("Base64 Decode Error:", err)
+	}
+	decodedBinarySecret = string(decodedBinarySecretBytes[:len])
+	return &decodedBinarySecret, nil
 }
