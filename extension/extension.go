@@ -82,7 +82,11 @@ func main() {
 	log.Infof("[extension] got base url %s", baseURL)
 	client = &http.Client{}
 
-	config := getConfig("/var/task/config.yaml")
+	configPath := os.Getenv("CONFIG_PATH")
+	if configPath == "" {
+		configPath = "/var/task/config.yaml"
+	}
+	config := getConfig(configPath)
 
 	// Fetching from secrets manager and writing to disk
 	populateSecrets(config)
